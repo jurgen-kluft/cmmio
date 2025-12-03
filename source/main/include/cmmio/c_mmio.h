@@ -9,10 +9,25 @@
 
 namespace ncore
 {
+    class alloc_t;
+
     namespace nmmio
     {
+        struct mappedfile_t;
+        void allocate(alloc_t* allocator, mappedfile_t*& out_mf);
+        void deallocate(alloc_t* allocator, mappedfile_t* mf);
 
-    } // namespace nmmio
-} // namespace ncore
+        bool        open_rw(mappedfile_t* mf, const char* path);
+        bool        open_ro(mappedfile_t* mf, const char* path);
+        bool        close(mappedfile_t* mf);
+        bool        is_writeable(mappedfile_t* mf);
+        void*       address_rw(mappedfile_t* mf);
+        const void* address_ro(mappedfile_t* mf);
+        size_t      size(mappedfile_t* mf);
+        void        sync(mappedfile_t* mf);
+        void        sync(mappedfile_t* mf, size_t offset, size_t bytes);
 
-#endif ///< __CMMIO_MMIO_PUBLIC_H__
+    }  // namespace nmmio
+}  // namespace ncore
+
+#endif  ///< __CMMIO_MMIO_PUBLIC_H__

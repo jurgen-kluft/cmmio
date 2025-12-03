@@ -1,8 +1,9 @@
 #include "ccore/c_target.h"
-#include "ccore/c_memory.h"
-#include "ccore/c_vmem.h"
 
 #ifdef TARGET_MAC
+#    include "ccore/c_memory.h"
+#    include "ccore/c_vmem.h"
+#    include "ccore/c_allocator.h"
 
 #    include <assert.h>
 #    include <errno.h>
@@ -135,7 +136,7 @@ namespace ncore
 
             bool unmap()
             {
-                if (m_ro_address != MAP_FAILED)
+                if (m_ro_address != MAP_FAILED && m_ro_address != nullptr)
                 {
                     // Perhaps controversial to do unconditionally, but safer/less surprising?
                     if (is_writeable())
@@ -153,6 +154,9 @@ namespace ncore
                     {
                         return false;
                     }
+
+                    m_rw_address = nullptr;
+                    m_ro_address = nullptr;
                     return true;
                 }
                 return false;
@@ -184,11 +188,33 @@ namespace ncore
             return false;
         }
 
+        bool close(mappedfile_t* mf)
+        {
+            bool unmapped = mf->m_mapped.unmap();
+            mf->m_file.close();
+            return unmapped;
+        }
+
         void*       data_rw(mappedfile_t* mf) { return mf->m_mapped.address_rw(); }
         const void* data_ro(mappedfile_t* mf) { return mf->m_mapped.address_ro(); }
         size_t      size(mappedfile_t* mf) { return mf->m_mapped.size(); }
         void        sync(mappedfile_t* mf) { mf->m_mapped.sync(); }
         void        sync(mappedfile_t* mf, size_t offset, size_t size) { mf->m_mapped.sync(offset, size); }
+
+        void allocate(alloc_t* allocator, mappedfile_t*& out_mf)
+        {
+            // construct a mappedfile_t using the provided allocator
+            out_mf = g_construct<mappedfile_t>(allocator);
+        }
+
+        void deallocate(alloc_t* allocator, mappedfile_t* mf)
+        {
+            if (mf)
+            {
+                close(mf);
+                allocator->deallocate(mf);
+            }
+        }
 
     }  // namespace nmmio
 }  // namespace ncore

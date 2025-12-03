@@ -1,6 +1,9 @@
 #include "ccore/c_target.h"
 
 #ifdef TARGET_PC
+#    include "ccore/c_memory.h"
+#    include "ccore/c_vmem.h"
+#    include "ccore/c_allocator.h"
 
 #    include <assert.h>
 #    include <windows.h>
@@ -111,7 +114,19 @@ namespace ncore
             void*       address_rw() const { return m_address_rw; }
             const void* address_ro() const { return m_address_ro; }
 
-            void close() { UnmapViewOfFile(m_address); }
+            void close()
+            {
+                if (m_address_rw)
+                {
+                    UnmapViewOfFile(m_address_rw);
+                }
+                else if (m_address_ro)
+                {
+                    UnmapViewOfFile(m_address_ro);
+                }
+                m_address_rw = nullptr;
+                m_address_ro = nullptr;
+            }
 
             MEMORY_BASIC_INFORMATION query() const
             {
@@ -136,6 +151,8 @@ namespace ncore
             size_t               m_size;
             filemapping_handle_t m_mapping;
             filemapping_view_t   m_rawView;
+
+            DCORE_CLASS_PLACEMENT_NEW_DELETE
         };
 
         bool open_rw(mappedfile_t* mf, const char* path)
@@ -172,6 +189,14 @@ namespace ncore
             return false;
         }
 
+        bool close(mappedfile_t* mf)
+        {
+            mf->m_rawView.close();
+            mf->m_mapping.close();
+            mf->m_file.close();
+            return true;
+        }
+
         bool is_writeable(mappedfile_t* mf) { return mf->m_rawView.is_writeable(); }
 
         void*       address_rw(mappedfile_t* mf) { return mf->m_rawView.address_rw(); }
@@ -195,6 +220,14 @@ namespace ncore
             mf->m_rawView.flush(offset, bytes);  // async flush pages of range
             mf->m_file.flush();                  // flush metadata and wait
         }
+
+        void allocate(alloc_t* allocator, mappedfile_t*& out_mf)
+        {
+            // construct a mappedfile_t using the provided allocator
+            out_mf = g_construct<mappedfile_t>(allocator);
+        }
+
+        void deallocate(alloc_t* allocator, mappedfile_t* mf) { g_destruct(allocator, mf); }
 
     }  // namespace nmmio
 }  // namespace ncore
