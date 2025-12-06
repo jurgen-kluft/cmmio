@@ -42,6 +42,19 @@ UNITTEST_SUITE_BEGIN(mmio)
 
             nmmio::deallocate(Allocator, mf);
         }
+
+        UNITTEST_TEST(open_existing_file)
+        {
+            nmmio::mappedfile_t* mf = nullptr;
+            nmmio::allocate(Allocator, mf);
+
+            bool result = nmmio::open_ro(mf, "data/test.bin");
+            CHECK_TRUE(result);
+
+            nmmio::close(mf);
+            nmmio::deallocate(Allocator, mf);
+        }
+
     }
 }
 UNITTEST_SUITE_END

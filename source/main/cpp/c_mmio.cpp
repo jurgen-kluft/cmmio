@@ -1,16 +1,15 @@
 #include "cmmio/c_mmio.h"
 #include "ccore/c_allocator.h"
+#include "ccore/c_debug.h"
 #include "ccore/c_memory.h"
 #include "ccore/c_vmem.h"
 
 #ifdef TARGET_PC
-#    include <assert.h>
 #    include <windows.h>
 #    include <subauth.h>  // must come after windows.h
 #endif
 
 #if defined(TARGET_MAC) || defined(TARGET_LINUX)
-#    include <assert.h>
 #    include <errno.h>
 #    include <exception>
 #    include <fcntl.h>
@@ -24,13 +23,13 @@
 #    include <unistd.h>
 #endif
 
-#    ifdef TARGET_PC
+#ifdef TARGET_PC
 
 namespace ncore
 {
     namespace nmmio
     {
-#        define INVALID_HANDLE_VALUE (HANDLE)(LONG_PTR) - 1
+#    define INVALID_HANDLE_VALUE (HANDLE)(LONG_PTR) - 1
 
         struct handle_t
         {
@@ -233,7 +232,7 @@ namespace ncore
         {
             if (!is_writeable())
                 return;
-            assert(offset + bytes <= m_size);
+            ASSERT(offset + bytes <= m_size);
             mf->m_rawView.flush(offset, bytes);  // async flush pages of range
             mf->m_file.flush();                  // flush metadata and wait
         }
@@ -249,7 +248,7 @@ namespace ncore
     }  // namespace nmmio
 }  // namespace ncore
 
-#    endif
+#endif
 
 // --------------------------------------------------------------------------------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -258,7 +257,9 @@ namespace ncore
 // --------------------------------------------------------------------------------------------------------------------------------------------------------
 // --------------------------------------------------------------------------------------------------------------------------------------------------------
 
-#    ifdef TARGET_MAC
+#ifdef TARGET_MAC
+
+#    define INVALID_FILE_DESCRIPTOR (int)-1
 
 namespace ncore
 {
@@ -269,6 +270,11 @@ namespace ncore
         public:
             int m_fd;
 
+            filedescr_t()
+                : m_fd(INVALID_FILE_DESCRIPTOR)
+            {
+            }
+
             bool open(const char* path, int flags, int mode = 0666 /* octal permissions */)
             {
                 close();
@@ -276,14 +282,14 @@ namespace ncore
                 return valid();
             }
 
-            bool valid() const { return m_fd != -1; }
+            bool valid() const { return m_fd != INVALID_FILE_DESCRIPTOR; }
 
             void close()
             {
                 if (valid())
                 {
                     ::close(m_fd);
-                    m_fd = -1;
+                    m_fd = INVALID_FILE_DESCRIPTOR;
                 }
             }
 
@@ -304,11 +310,12 @@ namespace ncore
         class memorymap_t
         {
         public:
-            size_t      m_size       = std::numeric_limits<size_t>::max();
+            ssize_t     m_size       = -1;
             void*       m_rw_address = nullptr;
             const void* m_ro_address = nullptr;
             bool        m_fixed      = false;
 
+            bool is_valid() const { return (m_size > 0) && (m_ro_address != MAP_FAILED); }
             bool is_writeable() const { return m_rw_address != nullptr; }
 
             bool map_rw(void* addr, size_t length, int flags, int fd, off_t offset)
@@ -316,11 +323,11 @@ namespace ncore
                 m_size       = length;
                 m_rw_address = mmap(const_cast<void*>(addr), length, PROT_READ | PROT_WRITE, flags, fd, offset);
                 m_ro_address = m_rw_address;
-#        if __APPLE__
+#    if __APPLE__
                 m_fixed = ((flags & (MAP_FIXED)) != 0);
-#        else
+#    else
                 m_fixed = ((flags & (MAP_FIXED | MAP_FIXED_NOREPLACE)) != 0);
-#        endif
+#    endif
                 return !(m_rw_address == MAP_FAILED);
             }
 
@@ -330,15 +337,23 @@ namespace ncore
                 m_rw_address = nullptr;
                 m_ro_address = mmap(const_cast<void*>(addr), length, PROT_READ, flags, fd, offset);
 
-#        if __APPLE__
+#    if __APPLE__
                 m_fixed = ((flags & (MAP_FIXED)) != 0);
-#        else
+#    else
                 m_fixed = ((flags & (MAP_FIXED | MAP_FIXED_NOREPLACE)) != 0);
-#        endif
+#    endif
                 return !(m_ro_address == MAP_FAILED);
             }
 
-            void close() { unmap(); }
+            void close()
+            {
+                unmap();
+
+                m_size       = -1;
+                m_rw_address = nullptr;
+                m_ro_address = nullptr;
+                m_fixed      = false;
+            }
 
             void*       address_rw() const { return m_rw_address; }
             void*       address_rw(size_t offset) const { return m_rw_address != nullptr ? static_cast<void*>(static_cast<char*>(m_rw_address) + offset) : nullptr; }
@@ -351,7 +366,7 @@ namespace ncore
                 if (!is_writeable())
                     return false;
 
-                assert(offset + size <= m_size);
+                ASSERT((ssize_t)(offset + size) <= m_size);
                 size_t alignedOffset = offset & ~(v_alloc_get_page_size() - 1);
                 size_t alignedSize   = size + offset - alignedOffset;
                 void*  offsetAddress = static_cast<void*>(static_cast<std::byte*>(const_cast<void*>(m_rw_address)) + alignedOffset);
@@ -397,6 +412,7 @@ namespace ncore
                         return false;
                     }
 
+                    m_size       = -1;
                     m_rw_address = nullptr;
                     m_ro_address = nullptr;
                     return true;
@@ -461,4 +477,4 @@ namespace ncore
     }  // namespace nmmio
 }  // namespace ncore
 
-#    endif
+#endif
