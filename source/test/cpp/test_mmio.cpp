@@ -43,13 +43,38 @@ UNITTEST_SUITE_BEGIN(mmio)
             nmmio::deallocate(Allocator, mf);
         }
 
-        UNITTEST_TEST(open_existing_file)
+        UNITTEST_TEST(open_existing_file_readonly)
         {
             nmmio::mappedfile_t* mf = nullptr;
             nmmio::allocate(Allocator, mf);
 
             bool result = nmmio::open_ro(mf, "data/test.bin");
             CHECK_TRUE(result);
+
+            const void* mem_ro = nmmio::address_ro(mf);
+            CHECK_NOT_NULL(mem_ro);
+
+            const void* mem_rw = nmmio::address_rw(mf);
+            CHECK_NULL(mem_rw);
+
+            nmmio::close(mf);
+            nmmio::deallocate(Allocator, mf);
+        }
+
+
+        UNITTEST_TEST(open_existing_file_readwrite)
+        {
+            nmmio::mappedfile_t* mf = nullptr;
+            nmmio::allocate(Allocator, mf);
+
+            bool result = nmmio::open_rw(mf, "data/test.bin");
+            CHECK_TRUE(result);
+
+            const void* mem_ro = nmmio::address_ro(mf);
+            CHECK_NOT_NULL(mem_ro);
+
+            const void* mem_rw = nmmio::address_rw(mf);
+            CHECK_NOT_NULL(mem_rw);
 
             nmmio::close(mf);
             nmmio::deallocate(Allocator, mf);

@@ -453,8 +453,8 @@ namespace ncore
             return unmapped;
         }
 
-        void*       data_rw(mappedfile_t* mf) { return mf->m_mapped.address_rw(); }
-        const void* data_ro(mappedfile_t* mf) { return mf->m_mapped.address_ro(); }
+        void*       address_rw(mappedfile_t* mf) { return mf->m_mapped.address_rw(); }
+        const void* address_ro(mappedfile_t* mf) { return mf->m_mapped.address_ro(); }
         size_t      size(mappedfile_t* mf) { return mf->m_mapped.size(); }
         void        sync(mappedfile_t* mf) { mf->m_mapped.sync(); }
         void        sync(mappedfile_t* mf, size_t offset, size_t size) { mf->m_mapped.sync(offset, size); }
