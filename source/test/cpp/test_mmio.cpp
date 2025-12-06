@@ -61,7 +61,6 @@ UNITTEST_SUITE_BEGIN(mmio)
             nmmio::deallocate(Allocator, mf);
         }
 
-
         UNITTEST_TEST(open_existing_file_readwrite)
         {
             nmmio::mappedfile_t* mf = nullptr;
@@ -76,10 +75,12 @@ UNITTEST_SUITE_BEGIN(mmio)
             const void* mem_rw = nmmio::address_rw(mf);
             CHECK_NOT_NULL(mem_rw);
 
+            const size_t size = nmmio::size(mf);
+            CHECK_EQUAL((size_t)55328, size);
+
             nmmio::close(mf);
             nmmio::deallocate(Allocator, mf);
         }
-
     }
 }
 UNITTEST_SUITE_END
