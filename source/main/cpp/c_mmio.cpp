@@ -205,6 +205,10 @@ namespace ncore
             return false;
         }
 
+        bool create_rw(mappedfile_t* mf, const char* path) { return false; }
+
+        bool create_ro(mappedfile_t* mf, const char* path) { return false; }
+
         bool close(mappedfile_t* mf)
         {
             mf->m_rawView.close();
@@ -275,12 +279,45 @@ namespace ncore
             {
             }
 
-            bool open(const char* path, int flags, int mode = 0666 /* octal permissions */)
+            enum
+            {
+                DEFAULT_MODE = 0666,
+            };
+
+            bool exists(const char* path)
+            {
+                // use stats to check for existence
+                struct stat s;
+                return (stat(path, &s) == 0);
+            }
+
+            bool open(const char* path, int flags)
             {
                 close();
-                m_fd = ::open(path, flags, mode);
+                m_fd = ::open(path, O_RDONLY, DEFAULT_MODE);
                 return valid();
             }
+
+            bool open_ro(const char* path) { return open(path, O_RDONLY); }
+            bool open_rw(const char* path) { return open(path, O_RDWR); }
+
+            bool create(const char* path, int flags, size_t size)
+            {
+                close();
+                m_fd = ::open(path, flags, DEFAULT_MODE);
+                if (valid())
+                {
+                    if (size > 0)
+                    {
+                        if (!truncate(size))
+                            close();
+                    }
+                }
+                return valid();
+            }
+
+            bool create_ro(const char* path, size_t size) { return create(path, O_RDONLY | O_CREAT, size); }
+            bool create_rw(const char* path, size_t size) { return create(path, O_RDWR | O_CREAT, size); }
 
             bool valid() const { return m_fd != INVALID_FILE_DESCRIPTOR; }
 
@@ -304,7 +341,18 @@ namespace ncore
                 return static_cast<size_t>(s.st_size);
             }
 
-            bool truncate(size_t size) { return valid() ? !(ftruncate(m_fd, size) == -1) : false; }
+            bool truncate(size_t size)
+            {
+                if (valid())
+                {
+                    if (::ftruncate(m_fd, size) == -1)
+                    {
+                        return false;
+                    }
+                    return true;
+                }
+                return false;
+            }
         };
 
         class memorymap_t
@@ -428,9 +476,11 @@ namespace ncore
             memorymap_t m_mapped;
         };
 
+        bool exists(mappedfile_t* mf, const char* path) { return mf->m_file.exists(path); }
+
         bool open_rw(mappedfile_t* mf, const char* path)
         {
-            if (mf->m_file.open(path, O_RDWR))
+            if (mf->m_file.open_rw(path))
             {
                 return mf->m_mapped.map_rw(nullptr, mf->m_file.size(), MAP_SHARED, mf->m_file.m_fd, 0);
             }
@@ -439,7 +489,25 @@ namespace ncore
 
         bool open_ro(mappedfile_t* mf, const char* path)
         {
-            if (mf->m_file.open(path, O_RDONLY))
+            if (mf->m_file.open_ro(path))
+            {
+                return mf->m_mapped.map_ro(nullptr, mf->m_file.size(), MAP_SHARED, mf->m_file.m_fd, 0);
+            }
+            return false;
+        }
+
+        bool create_rw(mappedfile_t* mf, const char* path, size_t size)
+        {
+            if (mf->m_file.create_rw(path, size))
+            {
+                return mf->m_mapped.map_rw(nullptr, mf->m_file.size(), MAP_SHARED, mf->m_file.m_fd, 0);
+            }
+            return false;
+        }
+
+        bool create_ro(mappedfile_t* mf, const char* path, size_t size)
+        {
+            if (mf->m_file.create_ro(path, size))
             {
                 return mf->m_mapped.map_ro(nullptr, mf->m_file.size(), MAP_SHARED, mf->m_file.m_fd, 0);
             }

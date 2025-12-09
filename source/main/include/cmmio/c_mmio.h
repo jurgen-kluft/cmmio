@@ -17,8 +17,11 @@ namespace ncore
         void allocate(alloc_t* allocator, mappedfile_t*& out_mf);
         void deallocate(alloc_t* allocator, mappedfile_t* mf);
 
+        bool        exists(mappedfile_t* mf, const char* path);
         bool        open_rw(mappedfile_t* mf, const char* path);
         bool        open_ro(mappedfile_t* mf, const char* path);
+        bool        create_rw(mappedfile_t* mf, const char* path, size_t size);
+        bool        create_ro(mappedfile_t* mf, const char* path, size_t size);
         bool        close(mappedfile_t* mf);
         bool        is_writeable(mappedfile_t* mf);
         void*       address_rw(mappedfile_t* mf);
