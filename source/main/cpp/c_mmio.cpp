@@ -73,7 +73,7 @@ namespace ncore
             void setPointer(ptrdiff_t distance, DWORD moveMethod = FILE_BEGIN) { SetFilePointerEx(m_handle.native(), LARGE_INTEGER{.QuadPart = distance}, nullptr, moveMethod); }
             void setEndOfFile() { SetEndOfFile(m_handle.native()); }
 
-            size_t size()
+            u64 size()
             {
                 LARGE_INTEGER result;
                 if (!GetFileSizeEx(m_handle.native(), &result))
@@ -88,13 +88,13 @@ namespace ncore
         {
             handle_t m_handle;
 
-            bool open(const filehandle_t& file, LPSECURITY_ATTRIBUTES fileMappingAttributes, DWORD protect, size_t maximumSize, LPCWSTR name = nullptr)
+            bool open(const filehandle_t& file, LPSECURITY_ATTRIBUTES fileMappingAttributes, DWORD protect, u64 maximumSize, LPCWSTR name = nullptr)
             {
                 // Mapping backed by filesystem file
                 return create(static_cast<HANDLE>(file), fileMappingAttributes, protect, maximumSize, name);
             }
 
-            bool open(LPSECURITY_ATTRIBUTES fileMappingAttributes, DWORD protect, size_t maximumSize, LPCWSTR name = nullptr)
+            bool open(LPSECURITY_ATTRIBUTES fileMappingAttributes, DWORD protect, u64 maximumSize, LPCWSTR name = nullptr)
             {
                 // Mapping backed by system paging file
                 return create(INVALID_HANDLE_VALUE, fileMappingAttributes, protect, maximumSize, name);
@@ -103,7 +103,7 @@ namespace ncore
             void close() { m_handle.close(); }
 
         private:
-            bool create(HANDLE fileHandle, LPSECURITY_ATTRIBUTES fileMappingAttributes, DWORD protect, size_t maximumSize, LPCWSTR name = nullptr)
+            bool create(HANDLE fileHandle, LPSECURITY_ATTRIBUTES fileMappingAttributes, DWORD protect, u64 maximumSize, LPCWSTR name = nullptr)
             {
                 m_handle = handle_t(CreateFileMappingW(fileHandle, fileMappingAttributes, protect, (maximumSize >> 32) & 0xffffffff, maximumSize & 0xffffffff, name));
             }
@@ -111,14 +111,14 @@ namespace ncore
 
         struct filemapping_view_t
         {
-            bool open_rw(const filemapping_handle_t& fileMapping, DWORD desiredAccess, size_t fileOffset = 0, size_t bytesToMap = 0 /* 0 means to the end */, void* baseAddress = nullptr)
+            bool open_rw(const filemapping_handle_t& fileMapping, DWORD desiredAccess, u64 fileOffset = 0, u64 bytesToMap = 0 /* 0 means to the end */, void* baseAddress = nullptr)
             {
                 m_address_rw = MapViewOfFileEx(fileMapping.m_handle, desiredAccess, (fileOffset >> 32) & 0xffffffff, fileOffset & 0xffffffff, bytesToMap, baseAddress);
                 m_address_ro = m_address_rw;
                 return m_address_rw != nullptr;
             }
 
-            bool open_ro(const filemapping_handle_t& fileMapping, DWORD desiredAccess, size_t fileOffset = 0, size_t bytesToMap = 0 /* 0 means to the end */, void* baseAddress = nullptr)
+            bool open_ro(const filemapping_handle_t& fileMapping, DWORD desiredAccess, u64 fileOffset = 0, u64 bytesToMap = 0 /* 0 means to the end */, void* baseAddress = nullptr)
             {
                 m_address_rw = nullptr;
                 m_address_ro = MapViewOfFileEx(fileMapping.m_handle, desiredAccess, (fileOffset >> 32) & 0xffffffff, fileOffset & 0xffffffff, bytesToMap, baseAddress);
@@ -151,7 +151,7 @@ namespace ncore
                 return result;
             }
 
-            void flush(size_t offset = 0, size_t bytes = 0) const
+            void flush(u64 offset = 0, u64 bytes = 0) const
             {
                 if (!FlushViewOfFile(static_cast<LPCVOID>(static_cast<const std::byte*>(m_address) + offset), bytes))
                     throw LastError();
@@ -164,7 +164,7 @@ namespace ncore
         struct mappedfile_t
         {
             filehandle_t         m_file;
-            size_t               m_size;
+            u64                  m_size;
             filemapping_handle_t m_mapping;
             filemapping_view_t   m_rawView;
 
@@ -222,7 +222,7 @@ namespace ncore
         void*       address_rw(mappedfile_t* mf) { return mf->m_rawView.address_rw(); }
         const void* address_ro(mappedfile_t* mf) { return mf->m_rawView.address_ro(); }
 
-        size_t size(mappedfile_t* mf) { return mf->m_size; }
+        u64 size(mappedfile_t* mf) { return mf->m_size; }
 
         void sync(mappedfile_t* mf)
         {
@@ -232,7 +232,7 @@ namespace ncore
             mf->m_file.flush();     // flush metadata and wait
         }
 
-        void sync(mappedfile_t* mf, size_t offset, size_t bytes)
+        void sync(mappedfile_t* mf, u64 offset, u64 bytes)
         {
             if (!is_writeable())
                 return;
@@ -301,7 +301,7 @@ namespace ncore
             bool open_ro(const char* path) { return open(path, O_RDONLY); }
             bool open_rw(const char* path) { return open(path, O_RDWR); }
 
-            bool create(const char* path, int flags, size_t size)
+            bool create(const char* path, int flags, u64 size)
             {
                 close();
                 m_fd = ::open(path, flags, DEFAULT_MODE);
@@ -316,8 +316,8 @@ namespace ncore
                 return valid();
             }
 
-            bool create_ro(const char* path, size_t size) { return create(path, O_RDONLY | O_CREAT, size); }
-            bool create_rw(const char* path, size_t size) { return create(path, O_RDWR | O_CREAT, size); }
+            bool create_ro(const char* path, u64 size) { return create(path, O_RDONLY | O_CREAT, size); }
+            bool create_rw(const char* path, u64 size) { return create(path, O_RDWR | O_CREAT, size); }
 
             bool valid() const { return m_fd != INVALID_FILE_DESCRIPTOR; }
 
@@ -330,7 +330,7 @@ namespace ncore
                 }
             }
 
-            size_t size() const
+            u64 size() const
             {
                 if (!valid())
                     return 0;
@@ -338,10 +338,10 @@ namespace ncore
                 struct stat s;
                 if (fstat(m_fd, &s) == -1)
                     return 0;
-                return static_cast<size_t>(s.st_size);
+                return static_cast<u64>(s.st_size);
             }
 
-            bool truncate(size_t size)
+            bool truncate(u64 size)
             {
                 if (valid())
                 {
@@ -366,7 +366,7 @@ namespace ncore
             bool is_valid() const { return (m_size > 0) && (m_ro_address != MAP_FAILED); }
             bool is_writeable() const { return m_rw_address != nullptr; }
 
-            bool map_rw(void* addr, size_t length, int flags, int fd, off_t offset)
+            bool map_rw(void* addr, u64 length, int flags, int fd, off_t offset)
             {
                 m_size       = length;
                 m_rw_address = mmap(const_cast<void*>(addr), length, PROT_READ | PROT_WRITE, flags, fd, offset);
@@ -379,7 +379,7 @@ namespace ncore
                 return !(m_rw_address == MAP_FAILED);
             }
 
-            bool map_ro(const void* addr, size_t length, int flags, int fd, off_t offset)
+            bool map_ro(const void* addr, u64 length, int flags, int fd, off_t offset)
             {
                 m_size       = length;
                 m_rw_address = nullptr;
@@ -404,20 +404,20 @@ namespace ncore
             }
 
             void*       address_rw() const { return m_rw_address; }
-            void*       address_rw(size_t offset) const { return m_rw_address != nullptr ? static_cast<void*>(static_cast<char*>(m_rw_address) + offset) : nullptr; }
+            void*       address_rw(u64 offset) const { return m_rw_address != nullptr ? static_cast<void*>(static_cast<char*>(m_rw_address) + offset) : nullptr; }
             const void* address_ro() const { return m_ro_address; }
 
-            size_t size() const { return m_size; }
+            u64 size() const { return m_size; }
 
-            bool sync(size_t offset, size_t size) const
+            bool sync(u64 offset, u64 size) const
             {
                 if (!is_writeable())
                     return false;
 
                 ASSERT((ssize_t)(offset + size) <= m_size);
-                size_t alignedOffset = offset & ~(v_alloc_get_page_size() - 1);
-                size_t alignedSize   = size + offset - alignedOffset;
-                void*  offsetAddress = static_cast<void*>(static_cast<std::byte*>(const_cast<void*>(m_rw_address)) + alignedOffset);
+                u64   alignedOffset = offset & ~(v_alloc_get_page_size() - 1);
+                u64   alignedSize   = size + offset - alignedOffset;
+                void* offsetAddress = static_cast<void*>(static_cast<std::byte*>(const_cast<void*>(m_rw_address)) + alignedOffset);
                 if (msync(offsetAddress, alignedSize, MS_SYNC | MS_INVALIDATE) == -1)
                     return false;
                 return true;
@@ -496,7 +496,7 @@ namespace ncore
             return false;
         }
 
-        bool create_rw(mappedfile_t* mf, const char* path, size_t size)
+        bool create_rw(mappedfile_t* mf, const char* path, u64 size)
         {
             if (mf->m_file.create_rw(path, size))
             {
@@ -505,7 +505,7 @@ namespace ncore
             return false;
         }
 
-        bool create_ro(mappedfile_t* mf, const char* path, size_t size)
+        bool create_ro(mappedfile_t* mf, const char* path, u64 size)
         {
             if (mf->m_file.create_ro(path, size))
             {
@@ -521,11 +521,25 @@ namespace ncore
             return unmapped;
         }
 
+        bool is_writeable(mappedfile_t* mf) { return mf->m_mapped.is_writeable(); }
+
+        bool extend_size(mappedfile_t* mf, u64 new_size)
+        {
+            if (mf->m_file.truncate(new_size))
+            {
+                if (mf->m_mapped.unmap())
+                {
+                    return mf->m_mapped.map_rw(nullptr, mf->m_file.size(), MAP_SHARED, mf->m_file.m_fd, 0);
+                }
+            }
+            return false;
+        }
+
         void*       address_rw(mappedfile_t* mf) { return mf->m_mapped.address_rw(); }
         const void* address_ro(mappedfile_t* mf) { return mf->m_mapped.address_ro(); }
-        size_t      size(mappedfile_t* mf) { return mf->m_mapped.size(); }
+        u64         size(mappedfile_t* mf) { return mf->m_mapped.size(); }
         void        sync(mappedfile_t* mf) { mf->m_mapped.sync(); }
-        void        sync(mappedfile_t* mf, size_t offset, size_t size) { mf->m_mapped.sync(offset, size); }
+        void        sync(mappedfile_t* mf, u64 offset, u64 size) { mf->m_mapped.sync(offset, size); }
 
         void allocate(alloc_t* allocator, mappedfile_t*& out_mf)
         {

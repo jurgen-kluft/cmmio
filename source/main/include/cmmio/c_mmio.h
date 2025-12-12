@@ -20,15 +20,16 @@ namespace ncore
         bool        exists(mappedfile_t* mf, const char* path);
         bool        open_rw(mappedfile_t* mf, const char* path);
         bool        open_ro(mappedfile_t* mf, const char* path);
-        bool        create_rw(mappedfile_t* mf, const char* path, size_t size);
-        bool        create_ro(mappedfile_t* mf, const char* path, size_t size);
+        bool        create_rw(mappedfile_t* mf, const char* path, u64 size);
+        bool        create_ro(mappedfile_t* mf, const char* path, u64 size);
         bool        close(mappedfile_t* mf);
         bool        is_writeable(mappedfile_t* mf);
+        bool        extend_size(mappedfile_t* mf, u64 new_size);
         void*       address_rw(mappedfile_t* mf);
         const void* address_ro(mappedfile_t* mf);
-        size_t      size(mappedfile_t* mf);
+        u64         size(mappedfile_t* mf);
         void        sync(mappedfile_t* mf);
-        void        sync(mappedfile_t* mf, size_t offset, size_t bytes);
+        void        sync(mappedfile_t* mf, u64 offset, u64 bytes);
 
     }  // namespace nmmio
 }  // namespace ncore
