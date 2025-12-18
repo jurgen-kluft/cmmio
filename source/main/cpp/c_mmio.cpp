@@ -43,12 +43,12 @@ namespace ncore
             {
             }
 
-            bool   valid() const { return m_handle == INVALID_HANDLE_VALUE; }
+            bool   is_valid() const { return m_handle != INVALID_HANDLE_VALUE; }
             HANDLE native() const { return m_handle; }
 
             void close()
             {
-                if (valid())
+                if (is_valid())
                 {
                     CloseHandle(m_handle);
                     m_handle = INVALID_HANDLE_VALUE;
@@ -64,24 +64,38 @@ namespace ncore
 
             bool open(const char* path)
             {
-                m_handle = handle_t(CreateFileW(path, .....));
+                m_handle = handle_t(CreateFileA(path, .....));
                 return m_handle.is_valid();
             }
 
             void close() { m_handle.close(); }
 
-            void setPointer(ptrdiff_t distance, DWORD moveMethod = FILE_BEGIN) { SetFilePointerEx(m_handle.native(), LARGE_INTEGER{.QuadPart = distance}, nullptr, moveMethod); }
+            bool setPointer(ptrdiff_t distance, DWORD moveMethod = FILE_BEGIN)
+            {
+                if (!is_valid())
+                    return false;
+                SetFilePointerEx(m_handle.native(), LARGE_INTEGER{.QuadPart = distance}, nullptr, moveMethod);
+                return true;
+            }
             void setEndOfFile() { SetEndOfFile(m_handle.native()); }
 
             u64 size()
             {
+                if (!is_valid())
+                    return false;
+
                 LARGE_INTEGER result;
                 if (!GetFileSizeEx(m_handle.native(), &result))
-                    throw LastError();
+                    return 0;
                 return result.QuadPart;
             }
 
-            bool flush() const { return FlushFileBuffers(m_handle.native()); }
+            bool flush() const
+            {
+                if (!is_valid())
+                    return false;
+                return FlushFileBuffers(m_handle.native());
+            }
         };
 
         struct filemapping_handle_t
@@ -263,7 +277,7 @@ namespace ncore
 
 #ifdef TARGET_MAC
 
-#    define INVALID_FILE_DESCRIPTOR (int)-1
+#    define INVALID_FILE_DESCRIPTOR (i32)-1
 
 namespace ncore
 {
@@ -272,7 +286,7 @@ namespace ncore
         class filedescr_t
         {
         public:
-            int m_fd;
+            i32 m_fd;
 
             filedescr_t()
                 : m_fd(INVALID_FILE_DESCRIPTOR)
@@ -291,17 +305,21 @@ namespace ncore
                 return (stat(path, &s) == 0);
             }
 
-            bool open(const char* path, int flags)
+            bool open_ro(const char* path)
             {
                 close();
                 m_fd = ::open(path, O_RDONLY, DEFAULT_MODE);
                 return valid();
             }
 
-            bool open_ro(const char* path) { return open(path, O_RDONLY); }
-            bool open_rw(const char* path) { return open(path, O_RDWR); }
+            bool open_rw(const char* path)
+            {
+                close();
+                m_fd = ::open(path, O_RDWR, DEFAULT_MODE);
+                return valid();
+            }
 
-            bool create(const char* path, int flags, u64 size)
+            bool create(const char* path, i32 flags, u64 size)
             {
                 close();
                 m_fd = ::open(path, flags, DEFAULT_MODE);
@@ -323,18 +341,16 @@ namespace ncore
 
             void close()
             {
-                if (valid())
-                {
-                    ::close(m_fd);
-                    m_fd = INVALID_FILE_DESCRIPTOR;
-                }
+                if (!valid())
+                    return;
+                ::close(m_fd);
+                m_fd = INVALID_FILE_DESCRIPTOR;
             }
 
             u64 size() const
             {
                 if (!valid())
                     return 0;
-
                 struct stat s;
                 if (fstat(m_fd, &s) == -1)
                     return 0;
@@ -358,7 +374,7 @@ namespace ncore
         class memorymap_t
         {
         public:
-            ssize_t     m_size       = -1;
+            u64         m_size       = 0;
             void*       m_rw_address = nullptr;
             const void* m_ro_address = nullptr;
             bool        m_fixed      = false;
@@ -366,10 +382,10 @@ namespace ncore
             bool is_valid() const { return (m_size > 0) && (m_ro_address != MAP_FAILED); }
             bool is_writeable() const { return m_rw_address != nullptr; }
 
-            bool map_rw(void* addr, u64 length, int flags, int fd, off_t offset)
+            bool map_rw(void* addr, u64 length, i32 flags, filedescr_t fd, off_t offset)
             {
                 m_size       = length;
-                m_rw_address = mmap(const_cast<void*>(addr), length, PROT_READ | PROT_WRITE, flags, fd, offset);
+                m_rw_address = mmap(addr, length, PROT_READ | PROT_WRITE, flags, fd.m_fd, offset);
                 m_ro_address = m_rw_address;
 #    if __APPLE__
                 m_fixed = ((flags & (MAP_FIXED)) != 0);
@@ -379,11 +395,11 @@ namespace ncore
                 return !(m_rw_address == MAP_FAILED);
             }
 
-            bool map_ro(const void* addr, u64 length, int flags, int fd, off_t offset)
+            bool map_ro(const void* addr, u64 length, i32 flags, filedescr_t fd, off_t offset)
             {
                 m_size       = length;
                 m_rw_address = nullptr;
-                m_ro_address = mmap(const_cast<void*>(addr), length, PROT_READ, flags, fd, offset);
+                m_ro_address = mmap(const_cast<void*>(addr), length, PROT_READ, flags, fd.m_fd, offset);
 
 #    if __APPLE__
                 m_fixed = ((flags & (MAP_FIXED)) != 0);
@@ -397,7 +413,7 @@ namespace ncore
             {
                 unmap();
 
-                m_size       = -1;
+                m_size       = 0;
                 m_rw_address = nullptr;
                 m_ro_address = nullptr;
                 m_fixed      = false;
@@ -407,7 +423,7 @@ namespace ncore
             void*       address_rw(u64 offset) const { return m_rw_address != nullptr ? static_cast<void*>(static_cast<char*>(m_rw_address) + offset) : nullptr; }
             const void* address_ro() const { return m_ro_address; }
 
-            u64 size() const { return m_size; }
+            inline u64 size() const { return m_size; }
 
             bool sync(u64 offset, u64 size) const
             {
@@ -471,7 +487,7 @@ namespace ncore
 
         struct mappedfile_t
         {
-            int         m_protection = PROT_READ | PROT_WRITE;
+            i32         m_protection = PROT_READ | PROT_WRITE;
             filedescr_t m_file;
             memorymap_t m_mapped;
         };
@@ -482,7 +498,7 @@ namespace ncore
         {
             if (mf->m_file.open_rw(path))
             {
-                return mf->m_mapped.map_rw(nullptr, mf->m_file.size(), MAP_SHARED, mf->m_file.m_fd, 0);
+                return mf->m_mapped.map_rw(nullptr, mf->m_file.size(), MAP_SHARED, mf->m_file, 0);
             }
             return false;
         }
@@ -491,7 +507,7 @@ namespace ncore
         {
             if (mf->m_file.open_ro(path))
             {
-                return mf->m_mapped.map_ro(nullptr, mf->m_file.size(), MAP_SHARED, mf->m_file.m_fd, 0);
+                return mf->m_mapped.map_ro(nullptr, mf->m_file.size(), MAP_SHARED, mf->m_file, 0);
             }
             return false;
         }
@@ -500,7 +516,7 @@ namespace ncore
         {
             if (mf->m_file.create_rw(path, size))
             {
-                return mf->m_mapped.map_rw(nullptr, mf->m_file.size(), MAP_SHARED, mf->m_file.m_fd, 0);
+                return mf->m_mapped.map_rw(nullptr, mf->m_file.size(), MAP_SHARED, mf->m_file, 0);
             }
             return false;
         }
@@ -509,7 +525,7 @@ namespace ncore
         {
             if (mf->m_file.create_ro(path, size))
             {
-                return mf->m_mapped.map_ro(nullptr, mf->m_file.size(), MAP_SHARED, mf->m_file.m_fd, 0);
+                return mf->m_mapped.map_ro(nullptr, mf->m_file.size(), MAP_SHARED, mf->m_file, 0);
             }
             return false;
         }
@@ -529,9 +545,11 @@ namespace ncore
             {
                 if (mf->m_mapped.unmap())
                 {
-                    return mf->m_mapped.map_rw(nullptr, mf->m_file.size(), MAP_SHARED, mf->m_file.m_fd, 0);
+                    const u64 newsize = mf->m_file.size();
+                    return mf->m_mapped.map_rw(nullptr, newsize, MAP_SHARED, mf->m_file, 0);
                 }
             }
+
             return false;
         }
 
