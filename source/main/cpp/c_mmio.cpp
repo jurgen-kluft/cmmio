@@ -430,7 +430,7 @@ namespace ncore
                 if (!is_writeable())
                     return false;
 
-                ASSERT((ssize_t)(offset + size) <= m_size);
+                ASSERT((offset + size) <= m_size);
                 u64   alignedOffset = offset & ~(v_alloc_get_page_size() - 1);
                 u64   alignedSize   = size + offset - alignedOffset;
                 void* offsetAddress = static_cast<void*>(static_cast<std::byte*>(const_cast<void*>(m_rw_address)) + alignedOffset);

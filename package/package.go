@@ -3,6 +3,7 @@ package cmmio
 import (
 	"github.com/jurgen-kluft/ccode/denv"
 	ccore "github.com/jurgen-kluft/ccore/package"
+	centry "github.com/jurgen-kluft/centry/package"
 	cunittest "github.com/jurgen-kluft/cunittest/package"
 )
 
@@ -17,6 +18,7 @@ func GetPackage() *denv.Package {
 	// dependencies
 	cunittestpkg := cunittest.GetPackage()
 	ccorepkg := ccore.GetPackage()
+	centrypkg := centry.GetPackage()
 
 	// main package
 	mainpkg := denv.NewPackage(repo_path, repo_name)
@@ -38,6 +40,12 @@ func GetPackage() *denv.Package {
 	maintest.AddDependencies(cunittestpkg.GetMainLib())
 	maintest.AddDependency(testlib)
 
+	// producer application
+	producerApp := denv.SetupCppAppProject(mainpkg, "producer", "producer")
+	producerApp.AddDependencies(centrypkg.GetMainLib())
+	producerApp.AddDependency(mainlib)
+
+	mainpkg.AddMainApp(producerApp)
 	mainpkg.AddMainLib(mainlib)
 	mainpkg.AddTestLib(testlib)
 	mainpkg.AddUnittest(maintest)

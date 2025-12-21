@@ -20,17 +20,15 @@ namespace ncore
 
         struct config_t
         {
-            config_t(int_t index_bytes, int_t data_bytes, int_t control_bytes, i32 max_consumers)
+            config_t(uint_t index_bytes, uint_t data_bytes, u16 max_consumers)
                 : index_initial_bytes(index_bytes)
                 , data_initial_bytes(data_bytes)
-                , control_bytes(control_bytes)
                 , max_consumers(max_consumers)
             {
             }
-            int_t index_initial_bytes;
-            int_t data_initial_bytes;
-            int_t control_bytes;
-            i32   max_consumers;
+            uint_t index_initial_bytes;
+            uint_t data_initial_bytes;
+            u16    max_consumers;
         };
 
         // Create handle
@@ -46,15 +44,16 @@ namespace ncore
         // Consumer attaches: index/data (RO), control (RW); opens named semaphores.
         i32 attach_consumer(handle_t* h, const char* index_path, const char* data_path, const char* control_path);
 
-        // Consumer registers (protected by registry_lock semaphore). Returns slot index or -1.
-        i32 register_consumer(handle_t* h, const char* name, u64 start_seq);
+        // Consumer registers (protected by registry_lock semaphore), returns slot index >= 0 or -1 when full.
+        // @name: maximum length is 44 chars (including null terminator)
+        i32 register_consumer(handle_t* h, const char* name, u32 start_seq);
 
         // Consumer drains all available READY entries, keep calling until none left.
         // Function will return false when no more messages are available, true otherwise.
         // No memory allocation or copy is performed, the user has to process the message immediately
         // or copy it elsewhere, there is no guarantee the message will remain valid after any
         // call to this API.
-        bool consumer_drain(handle_t* h, i32 slot_index, u8 const* msg_data, u32& msg_len);
+        bool consumer_drain(handle_t* h, i32 slot_index, u8 const*& msg_data, u32& msg_len);
 
         // Blocking wait for new entries (sem_wait).
         i32 wait_for_new(handle_t* h);

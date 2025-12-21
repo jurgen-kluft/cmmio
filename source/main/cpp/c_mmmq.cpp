@@ -18,34 +18,32 @@ namespace ncore
     {
 
 // ====== Public constants ======
-#define MMQ_ALIGN        8u
-#define MMQ_FLAG_PENDING (1u << 0)
-#define MMQ_FLAG_READY   (1u << 1)
-#define MMQ_FLAG_ABORTED (1u << 2)
+#define MMQ_ALIGN 8u
 
 #define MMQ_MAGIC_INDEX   0x1CEB00FDEADBEEFULL
 #define MMQ_MAGIC_DATA    0xDA7A5E90D0D0F0DULL
 #define MMQ_MAGIC_CONTROL 0xC017301D00DFACEULL
 
-        // ====== Queue layouts (8-byte aligned) ======
+        // ====== Layouts ======
+        typedef u64 seq_t;
 
         // index.mm (read-only for consumers)
+        // 16 bytes
         struct index_entry_t
         {
-            u64 seq;       // sequence number
-            u32 off8;      // offset >> 3 (max 32 GiB per segment)
-            u32 len;       // length in bytes of data
-            u32 flags;     // bit0=PENDING, bit1=READY, bit2=ABORTED (optional)
-            u32 reserved;  // padding to 8-byte alignment
+            seq_t seq;    // sequence number
+            u64   off8;   // offset >> 3 (max 32 GiB data file)
+            u32   len;    // length in bytes of data
+            u32   flags;  // bit0=PENDING, bit1=READY, bit2=ABORTED (optional)
         };
 
         struct index_header_t
         {
-            u64 magic;        // MMQ_MAGIC_INDEX
-            u32 version;      // 1
-            u32 align;        // 8
-            u64 next_seq;     // producer-only
-            u64 entry_count;  // mirror of next_seq (optional)
+            u64   magic;        // MMQ_MAGIC_INDEX
+            u32   version;      // 1
+            u32   align;        // 8
+            seq_t next_seq;     // producer-only
+            seq_t entry_count;  // mirror of next_seq (optional)
             // followed by index_entry_t entries[] (append-only)
         };
 
@@ -55,7 +53,6 @@ namespace ncore
             u64 magic;      // MMQ_MAGIC_DATA
             u32 version;    // 1
             u32 align;      // 8
-            u32 reserved;   // padding to 8-byte alignment
             u64 write_pos;  // producer-only, bytes
             u64 file_size;  // mapped payload bytes
             // followed by u8 payload[file_size]
@@ -64,22 +61,22 @@ namespace ncore
         // control.mm (shared read–write for producer & consumers)
         struct consumer_slot_t
         {
-            u64  last_seq;        // consumer progress
-            u64  last_update_ns;  // optional heartbeat
-            u32  active;          // 1=in use
-            char name[64];        // consumer id
+            u64   last_update_ns;  // optional heartbeat
+            seq_t last_seq;        // consumer progress
+            u32   active;          // 1=in use
+            char  name[64 - 20];   // consumer id
         };
 
         // control.mm header
         struct control_header_t
         {
-            u64  magic;                  // MMQ_MAGIC_CONTROL
-            u32  version;                // 1
-            u32  align;                  // 8
-            u32  max_consumers;          // maximum number of consumer slots
-            char new_entries_sem[64];    // e.g. "/X_new"
-            char registry_lock_sem[64];  // binary semaphore name (acts as mutex)
-            u64  notify_seq;             // incremented per publish
+            u64   magic;                  // MMQ_MAGIC_CONTROL
+            u32   version;                // 1
+            u16   align;                  // 8
+            u16   max_consumers;          // maximum number of consumer slots
+            seq_t notify_seq;             // incremented per publish
+            char  new_entries_sem[64];    // e.g. "/X_new"
+            char  registry_lock_sem[64];  // binary semaphore name (acts as mutex)
             // followed by consumer_slot_t[max_consumers]
         };
 
@@ -259,7 +256,10 @@ namespace ncore
             }
             else
             {
-                if (!nmmio::create_rw(h->m_control, control_path, config.control_bytes))
+                int_t control_bytes = sizeof(control_header_t) + (sizeof(consumer_slot_t) * config.max_consumers);
+                control_bytes       = (control_bytes + (1024 - 1)) & ~(1024 - 1);  // align up to 1 KiB
+
+                if (!nmmio::create_rw(h->m_control, control_path, control_bytes))
                     return -1;
             }
 
@@ -296,9 +296,9 @@ namespace ncore
             if (!nmmio::open_ro(h->m_index, index_path))
                 return -1;
             if (!nmmio::open_ro(h->m_data, data_path))
-                return -1;
+                return -2;
             if (!nmmio::open_rw(h->m_control, control_path))
-                return -1;
+                return -3;
 
             h->consumer.index_base   = nmmio::address_ro(h->m_index);
             h->consumer.data_base    = nmmio::address_ro(h->m_data);
@@ -313,18 +313,18 @@ namespace ncore
             h->consumer.ch = (control_header_t*)h->consumer.control_base;
 
             // sanity
-            if (h->consumer.ch->magic != MMQ_MAGIC_INDEX || h->consumer.ih->version != 1 || h->consumer.ih->align != MMQ_ALIGN)
-                return -1;
+            if (h->consumer.ih->magic != MMQ_MAGIC_INDEX || h->consumer.ih->version != 1 || h->consumer.ih->align != MMQ_ALIGN)
+                return -4;
             if (h->consumer.dh->magic != MMQ_MAGIC_DATA || h->consumer.dh->version != 1 || h->consumer.dh->align != MMQ_ALIGN)
-                return -1;
+                return -5;
             if (h->consumer.ch->magic != MMQ_MAGIC_CONTROL || h->consumer.ch->version != 1 || h->consumer.ch->align != MMQ_ALIGN)
-                return -1;
+                return -6;
 
             // open semaphores by names in control.mm
             h->new_sem = (void*)sem_open_existing(h->consumer.ch->new_entries_sem);
             h->reg_sem = (void*)sem_open_existing(h->consumer.ch->registry_lock_sem);
             if (!h->new_sem || !h->reg_sem)
-                return -1;
+                return -7;
 
             h->is_producer = false;
 
@@ -332,11 +332,11 @@ namespace ncore
         }
 
         // ====== Consumer registration ======
-        i32 register_consumer(handle_t* h, const char* name, u64 start_seq)
+        i32 register_consumer(handle_t* h, const char* name, u32 start_seq)
         {
             sem_t* lock = (sem_t*)h->reg_sem;
             if (sem_wait(lock) != 0)
-                return -1;  // lock registry
+                return -2;  // lock registry
 
             i32              slot = -1;
             u32              i, maxc = h->consumer.ch->max_consumers;
@@ -402,8 +402,8 @@ namespace ncore
             p->dh->write_pos = end;
 
             // Ensure index has room
-            u64   seq              = p->ih->next_seq;
-            int_t need_index_bytes = sizeof(index_header_t) + (int_t)((seq + 1) * sizeof(index_entry_t));
+            const seq_t seq              = p->ih->next_seq;
+            const int_t need_index_bytes = sizeof(index_header_t) + ((int_t)(seq + 1) * sizeof(index_entry_t));
             if (need_index_bytes > h->index_size)
             {
                 // grow index in chunks (e.g., +64k entries)
@@ -422,12 +422,9 @@ namespace ncore
             e->seq           = seq;
             e->off8          = (u32)(pos >> 3);
             e->len           = len;
-            e->flags         = MMQ_FLAG_PENDING;
 
             p->ih->next_seq    = seq + 1;
             p->ih->entry_count = p->ih->next_seq;
-
-            e->flags = MMQ_FLAG_READY;
 
             // Notify consumers
             p->ch->notify_seq++;
@@ -437,23 +434,19 @@ namespace ncore
         }
 
         // ====== Consumer drain ======
-        bool consumer_drain(handle_t* h, i32 slot_index, u8 const* msg_data, u32& msg_len)
+        bool consumer_drain(handle_t* h, i32 slot_index, u8 const*& msg_data, u32& msg_len)
         {
             consumer_slot_t* self = &get_slots(h->consumer.ch)[slot_index];
-            const u64        nseq = h->consumer.ih->next_seq;
-            while (self->last_seq < nseq)
+            const seq_t      nseq = h->consumer.ih->next_seq;
+            if (self->last_seq < nseq)
             {
                 const index_entry_t* e = &get_consumer_entries(h->consumer.ih)[self->last_seq];
-                if ((e->flags & MMQ_FLAG_READY) == 0)
-                {  // skip non-ready
-                    self->last_seq++;
-                    continue;
-                }
-                self->last_seq++;
 
                 const u64 off = ((u64)e->off8) << 3;
                 msg_data      = get_consumer_payload(h->consumer.dh) + off;
                 msg_len       = e->len;
+
+                self->last_seq++;
                 return true;
             }
             return false;
