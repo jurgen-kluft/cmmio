@@ -36,9 +36,10 @@ namespace ncore
 
         printf("initializing producer with index_path=%s, data_path=%s, control_path=%s\n", index_path, data_path, control_path);
 
-        if (nmmmq::init_producer(h, config, index_path, data_path, control_path, new_sem_name, reg_sem_name) != 0)
+        i32 result = nmmmq::init_producer(h, config, index_path, data_path, control_path, new_sem_name, reg_sem_name);
+        if (result < 0)
         {
-            printf("producer: init failed (errno=%d)\n", errno);
+            printf("producer: init failed (err = %s)\n", nmmmq::error_str(result));
             return 1;
         }
 
@@ -56,9 +57,10 @@ namespace ncore
             if (n >= (int)sizeof(msg))
                 n = (int)sizeof(msg) - 1;
 
-            if (nmmmq::publish(h, msg, (u32)(n + 1)) != 0)
+            i32 result = nmmmq::publish(h, msg, (u32)(n + 1));
+            if (result < 0)
             {
-                printf("producer: publish failed (errno=%d)\n", errno);
+                printf("producer: publish failed (err = %s)\n", nmmmq::error_str(result));
                 nmmmq::close_handle(h);
                 return 1;
             }
@@ -84,22 +86,22 @@ namespace ncore
         const char* data_path    = "data.mm";
         const char* control_path = "control.mm";
 
-        printf("attaching consumer '%s' with start_seq=%u to index_path=%s, data_path=%s, control_path=%s\n",
-               consumer_name, start_seq, index_path, data_path, control_path);
+        printf("attaching consumer '%s' with start_seq=%u to index_path=%s, data_path=%s, control_path=%s\n", consumer_name, start_seq, index_path, data_path, control_path);
 
         i32 result = nmmmq::attach_consumer(h, index_path, data_path, control_path);
         if (result != 0)
         {
-            printf("consumer: attach failed (errno=%d)\n", result);
+            printf("consumer: attach failed (err = %s)\n", nmmmq::error_str(result));
             return 1;
         }
 
         printf("registering consumer '%s' with start_seq=%u\n", consumer_name, start_seq);
 
-        i32 slot = nmmmq::register_consumer(h, consumer_name, start_seq);
-        if (slot < 0)
+        i32 slot;
+        result = nmmmq::register_consumer(h, consumer_name, start_seq, slot);
+        if (result<0)
         {
-            printf("consumer: register failed (errno=%d)\n", slot);
+            printf("consumer: register failed (err = %s)\n", nmmmq::error_str(result));
             nmmmq::close_handle(h);
             return 1;
         }
@@ -109,10 +111,9 @@ namespace ncore
         {
             const u8* msg_data;
             u32       msg_len;
-            bool      got = nmmmq::consumer_drain(h, slot, msg_data, msg_len);
-            if (!got)
+            if (!nmmmq::consumer_drain(h, slot, msg_data, msg_len))
             {
-                if (nmmmq::wait_for_new(h) != 0)
+                if (!nmmmq::wait_for_new(h))
                 {
                     printf("consumer: wait failed (errno=%d)\n", errno);
                     break;
@@ -120,7 +121,8 @@ namespace ncore
             }
             else
             {
-                printf("consumer '%s' got message: %.*s\n", consumer_name, msg_len, msg_data);
+                if (msg_data != nullptr)
+                    printf("consumer '%s' got message: %.*s\n", consumer_name, msg_len, msg_data);
 
                 usleep(80 * 1000);
             }

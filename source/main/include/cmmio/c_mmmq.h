@@ -46,7 +46,7 @@ namespace ncore
 
         // Consumer registers (protected by registry_lock semaphore), returns slot index >= 0 or -1 when full.
         // @name: maximum length is 44 chars (including null terminator)
-        i32 register_consumer(handle_t* h, const char* name, u32 start_seq);
+        i32 register_consumer(handle_t* h, const char* name, u32 start_seq, i32& slot);
 
         // Consumer drains all available READY entries, keep calling until none left.
         // Function will return false when no more messages are available, true otherwise.
@@ -56,14 +56,16 @@ namespace ncore
         bool consumer_drain(handle_t* h, i32 slot_index, u8 const*& msg_data, u32& msg_len);
 
         // Blocking wait for new entries (sem_wait).
-        i32 wait_for_new(handle_t* h);
+        bool wait_for_new(handle_t* h);
 
         // Emulated timed wait (macOS lacks sem_timedwait): trywait + sleeps for timeout_us.
-        i32 wait_for_new_timeout(handle_t* h, u32 timeout_us);
+        bool wait_for_new_timeout(handle_t* h, u32 timeout_us);
 
         // Close/unmap files and close semaphores. (Producer may also sem_unlink by names if desired.)
         void close_handle(handle_t* h);
 
+        // Get error string for return codes.
+        const char* error_str(i32 result);
     }  // namespace nmmmq
 }  // namespace ncore
 
